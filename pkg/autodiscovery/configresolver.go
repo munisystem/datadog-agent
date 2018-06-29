@@ -12,7 +12,6 @@ import (
 	"os"
 	"strconv"
 	"sync"
-	"unicode"
 
 	"github.com/DataDog/datadog-agent/pkg/util/log"
 
@@ -165,16 +164,15 @@ func (cr *ConfigResolver) resolve(tpl integration.Config, svc listeners.Service)
 	for i := 0; i < len(tpl.Instances); i++ {
 		// Copy original content from template
 		vars := tpl.GetTemplateVariablesForInstance(i)
-		for _, v := range vars {
-			name, key := parseTemplateVar(v)
-			if f, found := templateVariables[string(name)]; found {
-				resolvedVar, err := f(key, svc)
+		for old, v := range vars {
+			if f, found := templateVariables[string(v.Name)]; found {
+				resolvedVar, err := f(v.Key, svc)
 				if err != nil {
 					return integration.Config{}, err
 				}
 				// init config vars are replaced by the first found
-				resolvedConfig.InitConfig = bytes.Replace(resolvedConfig.InitConfig, v, resolvedVar, -1)
-				resolvedConfig.Instances[i] = bytes.Replace(resolvedConfig.Instances[i], v, resolvedVar, -1)
+				resolvedConfig.InitConfig = bytes.Replace(resolvedConfig.InitConfig, []byte(old), resolvedVar, -1)
+				resolvedConfig.Instances[i] = bytes.Replace(resolvedConfig.Instances[i], []byte(old), resolvedVar, -1)
 			}
 		}
 		err = resolvedConfig.Instances[i].MergeAdditionalTags(tags)
@@ -336,23 +334,4 @@ func getEnvvar(tplVar []byte, svc listeners.Service) ([]byte, error) {
 		return nil, fmt.Errorf("failed to retrieve envvar %s, skipping service %s", tplVar, svc.GetID())
 	}
 	return []byte(value), nil
-}
-
-// parseTemplateVar extracts the name of the var
-// and the key (or index if it can be cast to an int)
-func parseTemplateVar(v []byte) (name, key []byte) {
-	stripped := bytes.Map(func(r rune) rune {
-		if unicode.IsSpace(r) || r == '%' {
-			return -1
-		}
-		return r
-	}, v)
-	split := bytes.SplitN(stripped, []byte("_"), 2)
-	name = split[0]
-	if len(split) == 2 {
-		key = split[1]
-	} else {
-		key = []byte("")
-	}
-	return name, key
 }
